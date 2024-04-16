@@ -432,13 +432,14 @@ static enum time_type time_type;
 
 enum sort_type
   {
-    sort_none = -1,		/* -U */
-    sort_name,			/* default */
-    sort_extension,		/* -X */
-    sort_size,			/* -S */
-    sort_version,		/* -v */
-    sort_time,			/* -t */
-    sort_numtypes		/* the number of elements of this enum */
+    sort_none = -1,     /* -U */
+    sort_name,          /* default */
+    sort_extension,     /* -X */
+    sort_size,          /* -S */
+    sort_version,       /* -v */
+    sort_time,          /* -t */
+    sort_alphanumeric,  /* -Y */
+    sort_numtypes       /* the number of elements of this enum */
   };
 
 static enum sort_type sort_type;
@@ -853,11 +854,11 @@ ARGMATCH_VERIFY (format_args, format_types);
 
 static char const *const sort_args[] =
 {
-  "none", "time", "size", "extension", "version", NULL
+  "none", "time", "size", "extension", "version", "alphanumeric", NULL
 };
 static enum sort_type const sort_types[] =
 {
-  sort_none, sort_time, sort_size, sort_extension, sort_version
+  sort_none, sort_time, sort_size, sort_extension, sort_version, sort_alphanumeric
 };
 ARGMATCH_VERIFY (sort_args, sort_types);
 
@@ -1835,6 +1836,11 @@ decode_switches (int argc, char **argv)
 
         case 'X':
           sort_type = sort_extension;
+          sort_type_specified = true;
+          break;
+
+        case 'Y':
+          sort_type = sort_alphanumeric;
           sort_type_specified = true;
           break;
 
@@ -3265,12 +3271,58 @@ cmp_extension (struct fileinfo const *a, struct fileinfo const *b,
   return diff ? diff : cmp (a->name, b->name);
 }
 
+/* Compare alphanumerically. That is, strings are sorted by their
+   alphanumeric components, with numeric components sorted numerically.
+   For example, "foo9" comes before "foo10".  
+   
+   Sort code from https://stackoverflow.com/a/1344056/338803  */
+
+static inline bool
+isdigit(char c)
+{ 
+  return '0' <= c && c <= '9';
+}
+
+static inline int
+cmp_alphanumeric (struct fileinfo const *a, struct fileinfo const *b,
+                  int (*cmp) (char const *, char const *))
+{
+  char *s1 = a->name;
+  char *s2 = b->name;
+
+  for (;;) {
+    if (*s2 == '\0')
+      return *s1 != '\0';
+    else if (*s1 == '\0')
+      return 1;
+    else if (!(isdigit(*s1) && isdigit(*s2))) {
+      if (*s1 != *s2) {
+        char str1[2] = {*s1, '\0'};
+        char str2[2] = {*s2, '\0'};
+        return cmp (str1, str2);
+      } else
+        (++s1, ++s2);
+    } else {
+      char *lim1, *lim2;
+      unsigned long n1 = strtoul(s1, &lim1, 10);
+      unsigned long n2 = strtoul(s2, &lim2, 10);
+      if (n1 > n2)
+        return 1;
+      else if (n1 < n2)
+        return -1;
+      s1 = lim1;
+      s2 = lim2;
+    }
+  }  
+}
+
 DEFINE_SORT_FUNCTIONS (ctime, cmp_ctime)
 DEFINE_SORT_FUNCTIONS (mtime, cmp_mtime)
 DEFINE_SORT_FUNCTIONS (atime, cmp_atime)
 DEFINE_SORT_FUNCTIONS (size, cmp_size)
 DEFINE_SORT_FUNCTIONS (name, cmp_name)
 DEFINE_SORT_FUNCTIONS (extension, cmp_extension)
+DEFINE_SORT_FUNCTIONS (alphanumeric, cmp_alphanumeric)
 
 /* Compare file versions.
    Unlike all other compare functions above, cmp_version depends only
@@ -4700,6 +4752,7 @@ Mandatory arguments to long options are mandatory for short options too.\n\
   -w, --width=COLS           assume screen width instead of current value\n\
   -x                         list entries by lines instead of by columns\n\
   -X                         sort alphabetically by entry extension\n\
+  -Y                         sort alphanumerically\n\
   -Z, --context              print any SELinux security context of each file\n\
   -1                         list one file per line\n\
 "), stdout);
